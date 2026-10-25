@@ -1,0 +1,67 @@
+# Serviço de identidade: Keycloak com banco de dados PRÓPRIO.
+# Sobe de forma independente da API de vendas: docker compose up
+services:
+  identity-db:
+    image: postgres:16-alpine
+    container_name: vehicle_identity_db
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${IDENTITY_DB_PASSWORD:-keycloak}
+    volumes:
+      - identity-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U keycloak -d keycloak']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [identity]
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.1
+    container_name: vehicle_identity_keycloak
+    command: ['start-dev', '--import-realm']
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://identity-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${IDENTITY_DB_PASSWORD:-keycloak}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:-admin}
+      KC_HEALTH_ENABLED: 'true'
+      # O "iss" do token precisa ser estável, seja quem for que peça o token:
+      # o navegador acessa por localhost:8180, a API acessa por keycloak:8080.
+      # Fixar o hostname mantém o iss sempre igual; o backchannel dinâmico
+      # deixa os serviços internos continuarem usando o nome da rede Docker.
+      KC_HOSTNAME: ${KC_HOSTNAME:-http://localhost:8180}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: 'true'
+    ports:
+      - '8180:8080'
+    volumes:
+      - ./realm:/opt/keycloak/data/import:ro
+    depends_on:
+      identity-db:
+        condition: service_healthy
+    # A imagem do Keycloak não tem curl nem wget: o healthcheck usa o /dev/tcp do bash
+    # contra a porta de gerenciamento (9000), onde fica o /health/ready.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"status": "UP"' <&3
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    networks: [identity]
+
+volumes:
+  identity-pgdata:
+
+# Rede com nome fixo: a API de vendas se conecta a ela para buscar as chaves
+# públicas (JWKS) e validar os tokens, sem compartilhar mais nada com este serviço.
+networks:
+  identity:
+    name: vehicle-identity

@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  realm:
+    name: Validação da configuração
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Realm é um JSON válido
+        run: jq empty realm/vehicle-sales-realm.json
+      - name: Realm declara os papéis e clients esperados
+        run: |
+          jq -e '[.roles.realm[].name] | (index("customer") and index("admin"))' realm/vehicle-sales-realm.json
+          jq -e '[.clients[].clientId] | (index("vehicle-sales-frontend") and index("vehicle-sales-cli"))' realm/vehicle-sales-realm.json
+      - name: docker-compose é válido
+        run: docker compose config --quiet
+
+  smoke:
+    name: Testes de fumaça do Keycloak
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sobe o serviço de identidade
+        run: docker compose up -d --wait
+      - name: Valida o contrato consumido pela API de vendas
+        run: ./scripts/smoke-test.sh
+      - name: Logs do Keycloak em caso de falha
+        if: failure()
+        run: docker compose logs keycloak --tail 200
+      - name: Derruba o ambiente
+        if: always()
+        run: docker compose down -v

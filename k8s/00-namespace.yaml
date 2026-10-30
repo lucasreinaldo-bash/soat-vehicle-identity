@@ -1,0 +1,7 @@
+# Namespace próprio: o serviço de identidade não compartilha recursos com a API de vendas.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vehicle-identity
+  labels:
+    app.kubernetes.io/part-of: vehicle-identity

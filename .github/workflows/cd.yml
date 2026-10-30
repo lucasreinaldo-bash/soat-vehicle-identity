@@ -1,0 +1,42 @@
+name: CD
+
+# Deploy contínuo do serviço de identidade no cluster Kubernetes local (minikube).
+#
+# Só roda depois de o CI passar na main, ou seja, depois de um Pull Request
+# aprovado e integrado. Nunca roda em Pull Request: o runner é a máquina que
+# hospeda o cluster, e código de PR não deve chegar até ela.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-vehicle-identity
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy no Kubernetes
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: [self-hosted, minikube]
+    environment: minikube
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Cluster acessível
+        run: kubectl cluster-info
+      - name: Aplica os manifestos e aguarda o rollout
+        run: ./k8s/deploy.sh
+      - name: Verificação pós-deploy
+        run: ./k8s/verificar-deploy.sh
+      - name: Diagnóstico em caso de falha
+        if: failure()
+        run: |
+          kubectl -n vehicle-identity get pods -o wide
+          kubectl -n vehicle-identity logs deploy/keycloak --tail=80

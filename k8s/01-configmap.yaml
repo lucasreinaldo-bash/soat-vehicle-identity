@@ -1,0 +1,22 @@
+# Configurações NÃO sensíveis do Keycloak e do banco de identidade.
+# Senhas ficam no Secret (02-secret.yaml).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: identity-config
+  namespace: vehicle-identity
+  labels:
+    app.kubernetes.io/part-of: vehicle-identity
+data:
+  POSTGRES_DB: 'keycloak'
+  POSTGRES_USER: 'keycloak'
+  KC_DB: 'postgres'
+  KC_DB_URL: 'jdbc:postgresql://identity-db:5432/keycloak'
+  KC_DB_USERNAME: 'keycloak'
+  KC_HEALTH_ENABLED: 'true'
+  # O "iss" do token precisa ser o mesmo para quem pede o token pelo host
+  # (port-forward em localhost:8180) e para a API, que busca as chaves pelo
+  # Service interno. O hostname fixo garante o iss estável; o backchannel
+  # dinâmico deixa o tráfego interno usar o nome do Service.
+  KC_HOSTNAME: 'http://localhost:8180'
+  KC_HOSTNAME_BACKCHANNEL_DYNAMIC: 'true'

@@ -188,16 +188,84 @@ O mesmo script roda no CI a cada Pull Request, contra um Keycloak real.
 
 ---
 
-## Fluxo de mudanças
+## Implantação em Kubernetes
 
-Toda mudança entra por **Pull Request**. A branch `main` é protegida, inclusive para
-administradores: não aceita push direto, exige histórico linear e só aceita merge com o CI verde.
+Os manifestos estão em [`k8s/`](k8s/), no namespace próprio `vehicle-identity`, separado do
+namespace da API de vendas:
 
-O CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) tem dois jobs:
+| Arquivo | Recursos | Papel |
+|---|---|---|
+| `00-namespace.yaml` | Namespace `vehicle-identity` | Isolamento do serviço de identidade |
+| `01-configmap.yaml` | ConfigMap | Banco, hostname fixo do emissor, health checks |
+| `02-secret.yaml` | Secret | Senha do banco e credencial do console de administração |
+| `03-postgres.yaml` | PVC + Deployment + Service | Banco **próprio** da identidade, só interno (ClusterIP) |
+| `04-keycloak.yaml` | Deployment + Service | Keycloak com o realm importado e probes na porta de gerenciamento |
 
-- **Validação da configuração** — o realm é JSON válido, declara os papéis e clients esperados, e o
-  compose é válido.
-- **Testes de fumaça do Keycloak** — sobe o serviço e executa `scripts/smoke-test.sh`.
+O realm não é copiado para um manifesto. O `deploy.sh` gera o ConfigMap `vehicle-sales-realm` a
+partir de [`realm/vehicle-sales-realm.json`](realm/vehicle-sales-realm.json), o mesmo arquivo
+que o Docker Compose usa. A configuração tem uma fonte só.
+
+```bash
+minikube start
+./k8s/deploy.sh
+kubectl -n vehicle-identity port-forward svc/keycloak 8180:8080
+```
+
+Com o port-forward em `8180`, os endereços da seção
+[Como executar localmente](#como-executar-localmente) continuam válidos, e o emissor do token
+continua `http://localhost:8180/realms/vehicle-sales`. Dentro do cluster, a API de vendas busca
+as chaves em `keycloak.vehicle-identity.svc.cluster.local:8080`.
+
+Decisões dos manifestos:
+
+- **Rollout determinado pela configuração.** O pod do Keycloak leva uma anotação com o hash do
+  ConfigMap, do Secret e do realm. Configuração nova reinicia o pod; um deploy sem mudança não
+  reinicia nada.
+- **`startupProbe` generosa.** A primeira subida cria o schema e importa o realm, e leva mais
+  tempo. A liveness continua rígida depois disso.
+- **Estratégia `Recreate`.** Em modo de desenvolvimento, duas instâncias do Keycloak não formam
+  cluster. A nova só sobe depois de a antiga parar.
+
+Para remover tudo: `./k8s/cleanup.sh`.
+
+---
+
+## Fluxo de mudanças: Pull Requests, CI e deploy automatizado
+
+Toda mudança entra por **Pull Request** e chega ao cluster sem passo manual.
+
+A branch `main` é protegida, inclusive para administradores:
+
+- não aceita push direto;
+- exige histórico linear;
+- só aceita merge com o CI verde.
+
+### CI: a cada Pull Request
+
+O CI está em [`.github/workflows/ci.yml`](.github/workflows/ci.yml) e tem dois jobs:
+
+- **Validação da configuração**: o realm é JSON válido e declara os papéis e clients esperados; o
+  compose e os manifestos Kubernetes são válidos.
+- **Testes de fumaça do Keycloak**: sobe o serviço e executa `scripts/smoke-test.sh`.
+
+### CD: a cada merge na `main`
+
+O CD está em [`.github/workflows/cd.yml`](.github/workflows/cd.yml). Ele dispara quando o CI
+termina com sucesso na `main` e roda num **runner self-hosted**, na máquina que hospeda o
+minikube, com o rótulo `minikube`. O job:
+
+1. faz checkout do commit que passou no CI;
+2. executa `k8s/deploy.sh` e espera o rollout;
+3. executa [`k8s/verificar-deploy.sh`](k8s/verificar-deploy.sh), que confere os pods prontos, o
+   emissor estável, o JWKS e os papéis e a audiência do token do operador.
+
+A verificação só lê dados e não cadastra usuários a cada deploy.
+
+O runner não executa código de Pull Request:
+
+- o CD só dispara depois do merge;
+- PRs de contribuidores externos exigem aprovação antes de qualquer workflow rodar;
+- o environment `minikube` só aceita deploys a partir de branch protegida.
 
 ---
 

@@ -20,6 +20,10 @@ jobs:
           jq -e '[.clients[].clientId] | (index("vehicle-sales-frontend") and index("vehicle-sales-cli"))' realm/vehicle-sales-realm.json
       - name: docker-compose é válido
         run: docker compose config --quiet
+      - name: Manifestos Kubernetes são válidos
+        run: |
+          yamllint -d '{extends: relaxed, rules: {line-length: disable}}' k8s/
+          bash -n k8s/deploy.sh k8s/verificar-deploy.sh k8s/cleanup.sh
 
   smoke:
     name: Testes de fumaça do Keycloak

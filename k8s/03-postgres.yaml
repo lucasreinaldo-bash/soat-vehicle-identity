@@ -1,0 +1,84 @@
+# Banco PRÓPRIO do serviço de identidade: nome, e-mail, CPF e senha dos clientes
+# ficam aqui, e só aqui. Exposto apenas dentro do namespace (ClusterIP).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: identity-db-data
+  namespace: vehicle-identity
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: identity-db
+  namespace: vehicle-identity
+  labels:
+    app: identity-db
+    app.kubernetes.io/part-of: vehicle-identity
+spec:
+  replicas: 1
+  # Um único dono do volume: o pod antigo para antes de o novo subir.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: identity-db
+  template:
+    metadata:
+      labels:
+        app: identity-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef: { name: identity-config, key: POSTGRES_DB }
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef: { name: identity-config, key: POSTGRES_USER }
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: identity-secret, key: POSTGRES_PASSWORD }
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ['sh', '-c', 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ['sh', '-c', 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: identity-db-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: identity-db
+  namespace: vehicle-identity
+spec:
+  type: ClusterIP
+  selector:
+    app: identity-db
+  ports:
+    - port: 5432
+      targetPort: 5432

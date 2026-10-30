@@ -54,13 +54,18 @@ e é importada na inicialização. Nada é configurado manualmente pelo console.
 | Papel | Quem tem | O que permite na API de vendas |
 |---|---|---|
 | `customer` | **Todo cliente que se cadastra** — atribuído automaticamente pelo papel padrão do realm | Comprar veículos e consultar as próprias compras |
-| `admin` | O operador da revenda | Cadastrar e editar veículos |
+| `admin` | O operador da revenda — **e apenas ele**: o operador não recebe `customer` | Cadastrar e editar veículos |
 
 As listagens de veículos à venda e vendidos são públicas e não exigem token.
 
 O papel `admin` existe porque a Fase 3 restringe a compra a pessoas cadastradas. Se qualquer
 cliente cadastrado pudesse também cadastrar e editar veículos, o controle de acesso não protegeria
 nada. Separar operador e comprador é uma inferência de modelagem.
+
+A separação vale nos dois sentidos. O papel padrão do realm (`default-roles-vehicle-sales`) inclui
+`customer`, e o Keycloak expande esse papel composto dentro do token. Se o operador o recebesse, o
+token dele traria `customer` e ele conseguiria comprar pela API. Por isso o usuário operador é
+importado com `realmRoles: ["admin"]` apenas — e o teste de fumaça verifica isso.
 
 ### Clients
 
@@ -151,6 +156,11 @@ ela para buscar as chaves públicas em `http://keycloak:8080/realms/vehicle-sale
 
 Por isso, localmente, **este serviço sobe antes** da API de vendas.
 
+> **Recriou este serviço?** Um `docker compose down` remove a rede `vehicle-identity`, e o
+> `up` cria outra, com um identificador novo. O container da API continua apontando para a rede
+> antiga e não sobe (`network ... not found`). Recrie-o, na pasta da API:
+> `docker compose up -d --force-recreate api`.
+
 ---
 
 ## Como testar
@@ -167,6 +177,7 @@ O script valida o contrato de ponta a ponta:
 |---|---|
 | Emissor estável e JWKS publicado | A API consegue validar a assinatura |
 | Operador com papel `admin` e audiência correta | O controle de acesso da API funciona |
+| **Operador sem o papel `customer`** | **O operador não consegue comprar veículos** |
 | Cadastro de cliente com CPF válido | O fluxo de registro funciona |
 | CPF fora do formato rejeitado | O perfil de usuário valida o atributo |
 | Cliente novo recebe `customer`, e não recebe `admin` | O papel padrão está correto |

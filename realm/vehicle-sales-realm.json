@@ -140,8 +140,7 @@
         }
       ],
       "realmRoles": [
-        "admin",
-        "default-roles-vehicle-sales"
+        "admin"
       ]
     }
   ],

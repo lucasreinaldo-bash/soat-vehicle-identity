@@ -31,6 +31,9 @@ T=$(token_de "admin@revenda.com" "admin12345")
 if [ -n "$T" ]; then
   C=$(claims "$T")
   echo "$C" | jq -e '.realm_access.roles | index("admin")' >/dev/null && passou "admin@revenda.com tem o papel admin" || falhou "admin sem papel admin"
+  # Operador não é comprador: sem isto, o papel padrão daria "customer" ao admin
+  # e ele conseguiria comprar veículos pela API.
+  echo "$C" | jq -e '.realm_access.roles | index("customer") | not' >/dev/null && passou "operador NÃO tem o papel customer" || falhou "operador recebeu customer (conseguiria comprar)"
   echo "$C" | jq -e '(.aud | if type=="array" then . else [.] end) | index("vehicle-sales-api")' >/dev/null && passou "audiência inclui vehicle-sales-api" || falhou "audiência sem vehicle-sales-api"
   [ "$(echo "$C" | jq -r .iss)" = "$ISSUER_ESPERADO" ] && passou "iss do token confere com o emissor" || falhou "iss do token divergente"
 else falhou "não obteve token do operador"; fi
